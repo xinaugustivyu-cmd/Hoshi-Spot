@@ -1,0 +1,93 @@
+{
+  "$schema": "https://schema.freqtrade.io/schema.json",
+  "max_open_trades": 1,
+  "stake_currency": "USDT",
+  "stake_amount": "unlimited",
+  "tradable_balance_ratio": 0.99,
+  "fiat_display_currency": "USD",
+  "dry_run": true,
+  "dry_run_wallet": 80,
+  "cancel_open_orders_on_exit": true,
+  "trading_mode": "spot",
+  "timeframe": "1h",
+  "minimal_roi": {
+    "0": 0.06
+  },
+  "stoploss": -0.04,
+  "use_exit_signal": true,
+  "process_only_new_candles": true,
+  "initial_state": "stopped",
+  "force_entry_enable": false,
+  "entry_pricing": {
+    "price_side": "same",
+    "use_order_book": false,
+    "price_last_balance": 0.0,
+    "check_depth_of_market": {
+      "enabled": false,
+      "bids_to_ask_delta": 1
+    }
+  },
+  "exit_pricing": {
+    "price_side": "same",
+    "use_order_book": false,
+    "price_last_balance": 0.0
+  },
+  "db_url": "sqlite:///user_data/v11_accounts/B/trades.sqlite",
+  "verbosity": -1,
+  "logfile": "user_data/v11_accounts/B/hoshi.log",
+  "strategy": "HoshiSpotV11B",
+  "exchange": {
+    "name": "binance",
+    "enable_ws": false,
+    "key": "",
+    "secret": "",
+    "ccxt_config": {},
+    "ccxt_async_config": {},
+    "pair_whitelist": [
+      "BTC/USDT",
+      "ETH/USDT"
+    ]
+  },
+  "pairlists": [
+    {
+      "method": "StaticPairList"
+    }
+  ],
+  "strategy_parameters": {
+    "ema_fast": 20,
+    "ema_slow": 50,
+    "rsi_period": 14,
+    "rsi_max": 65,
+    "volume_period": 20,
+    "volume_multiplier": 1.1,
+    "max_candle_gain": 0.03,
+    "max_position_fraction": 0.2,
+    "max_loss_fraction": 0.01,
+    "stoploss_fraction": 0.04,
+    "fee_per_side": 0.001,
+    "slippage_per_side": 0.0005,
+    "max_signal_age_minutes": 15,
+    "max_entry_deviation": 0.003,
+    "max_candle_change": 0.1,
+    "weekly_loss_limit": 0.03,
+    "stage_loss_limit_fraction": 0.05,
+    "max_drawdown_limit": 0.05,
+    "stoploss_guard_lookback_candles": 24,
+    "stoploss_guard_trade_limit": 1,
+    "stoploss_guard_stop_candles": 24
+  },
+  "api_server": {
+    "enabled": true,
+    "listen_ip_address": "0.0.0.0",
+    "listen_port": 8080,
+    "verbosity": "error",
+    "CORS_origins": [],
+    "username": "",
+    "password": "",
+    "jwt_secret_key": ""
+  },
+  "bot_name": "Hoshi V1.1 B Dry Run Research",
+  "internals": {
+    "process_throttle_secs": 5
+  }
+}

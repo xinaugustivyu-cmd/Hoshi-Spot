@@ -2,6 +2,8 @@
 
 日期：2026-10-27。分支：`hoshi-v1.1-experiment`，基线提交 `e172f2a8e3f5c3e092ac34aebd563469de5a3c85`。本轮只编写候选系统、离线测试和历史回放；**没有启动 A/B/C 实时 Dry Run，没有连接交易账户或执行真实买卖**。
 
+最终 Docker 现场检查发现一个原 **V1** Dry Run 容器 `exchange-hoshi-dry-run-run-4cd90a480787`，启动于 2026-10-27 08:53 UTC，早于本轮 V1.1 工作；命令使用 `HoshiSpotV1` 和 `--dry-run`。本轮没有启动、停止或修改这个既有容器，它不属于 A/B/C 三组隔离实验。
+
 ## 已实现
 
 1. 冻结 V1：23 个原件及归档逐一校验 SHA-256，一致 23/23。原始策略、配置、历史行情、回测 ZIP 和报告均未改写。见 `v11_baseline_audit.md`、`../baselines/v1_20261027/MANIFEST.sha256`。

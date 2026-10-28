@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import sqlite3
@@ -16,6 +17,7 @@ from .state_store import RiskStateError, StateStore, iso
 
 
 STOP_REASONS = {"stop_loss", "stoploss", "stoploss_on_exchange", "trailing_stop_loss"}
+log = logging.getLogger(__name__)
 
 
 class ApprovalDenied(RiskStateError):
@@ -61,6 +63,7 @@ class RiskEngine:
                                             policy_hash=self.policy.hash)
             try:
                 with connection:
+                    self.store.begin_write(connection)
                     self.store.set_meta(connection, "data_pause", True)
                     self.store.set_meta(connection, "healthy_candles", 0)
                     last = self.store.get_meta(connection, "last_closed_candle_at")
@@ -196,6 +199,7 @@ class RiskEngine:
             return self._emergency(now, f"风险账本不可用：{exc}")
         try:
             with connection:
+                self.store.begin_write(connection)
                 return self._evaluate_locked(
                     connection, now=now, equity_input=equity_input,
                     closed_trades=closed_trades, market_event_id=market_event_id,
@@ -207,6 +211,17 @@ class RiskEngine:
                     exchange_secret=exchange_secret,
                 )
         except (sqlite3.DatabaseError, RiskStateError, ValueError, TypeError, OverflowError) as exc:
+            log.exception("V1.1 %s 风控写入事务失败", self.account_id)
+            # Release any transaction or OS lock before the independent halt
+            # transaction. A failed commit may still leave the handle open.
+            try:
+                connection.rollback()
+            except sqlite3.Error:
+                pass
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
             self._latch_emergency(now, f"风控评估失败：{exc}")
             return self._emergency(now, f"风控评估失败：{exc}")
         finally:
@@ -219,6 +234,7 @@ class RiskEngine:
                                             policy_hash=self.policy.hash)
             try:
                 with connection:
+                    self.store.begin_write(connection)
                     self.store.set_meta(connection, "manual_halt", f"EMERGENCY:{reason}")
                     self.store.set_meta(connection, "manual_halt_at", iso(now))
                     self._audit(connection, now, "EMERGENCY_HALT", "emergency", {"reason": reason})
@@ -418,6 +434,7 @@ class RiskEngine:
             return self._emergency(now, f"人工恢复前校验失败：{exc}")
         try:
             with connection:
+                self.store.begin_write(connection)
                 self._sync_trades(connection, now, closed_trades)
                 current_halt = self.store.get_meta(connection, "manual_halt")
                 if marker.exists() and not current_halt:
@@ -489,14 +506,18 @@ class RiskEngine:
                 return self._decision(connection, now, "ACTIVE", "manual_resume", None,
                                       {"new_stage": new_stage_id, "equity": equity})
         except ApprovalDenied as exc:
-            with connection:
-                self._audit(connection, now, "HALTED_MANUAL_REVIEW", "approval_rejected", {
-                    "approval_id": approval_id, "reason": str(exc),
-                })
-                halt = self.store.get_meta(connection, "manual_halt")
-                state = "EMERGENCY_HALT" if halt.startswith("EMERGENCY:") else "HALTED_MANUAL_REVIEW"
-                return self._decision(connection, now, state, "approval_rejected", None,
-                                      {"reason": str(exc)})
+            try:
+                with connection:
+                    self.store.begin_write(connection)
+                    self._audit(connection, now, "HALTED_MANUAL_REVIEW", "approval_rejected", {
+                        "approval_id": approval_id, "reason": str(exc),
+                    })
+                    halt = self.store.get_meta(connection, "manual_halt")
+                    state = "EMERGENCY_HALT" if halt.startswith("EMERGENCY:") else "HALTED_MANUAL_REVIEW"
+                    return self._decision(connection, now, state, "approval_rejected", None,
+                                          {"reason": str(exc)})
+            except (sqlite3.DatabaseError, RiskStateError, ValueError) as audit_exc:
+                return self._emergency(now, f"人工恢复拒绝记录失败：{audit_exc}")
         except (sqlite3.DatabaseError, RiskStateError, ValueError) as exc:
             return self._emergency(now, f"人工恢复被拒绝：{exc}")
         finally:
@@ -516,6 +537,7 @@ class RiskEngine:
                                         policy_hash=self.policy.hash)
         try:
             with connection:
+                self.store.begin_write(connection)
                 self._audit(connection, now, decision.state, "blocked_candidate", {
                     "signal_id": signal_id, "market_event_id": market_event_id,
                     "state_id": decision.state_id, "rule": decision.rule,

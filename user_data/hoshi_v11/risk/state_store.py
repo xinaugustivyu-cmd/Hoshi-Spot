@@ -7,6 +7,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+BUSY_TIMEOUT_MS = 5000
+
 
 SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -56,8 +58,9 @@ class StateStore:
         if not account_id or not stage_id or initial_equity <= 0:
             raise ValueError("账户、阶段或初始模拟权益无效")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=BUSY_TIMEOUT_MS / 1000)
         try:
+            connection.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
             connection.executescript(SCHEMA)
             values = {
                 "account_id": account_id,
@@ -77,6 +80,7 @@ class StateStore:
                 "healthy_candles": 0,
             }
             with connection:
+                self.begin_write(connection)
                 for key, value in values.items():
                     self.set_meta(connection, key, value)
                 week_start = started_at.astimezone(timezone.utc)
@@ -96,8 +100,10 @@ class StateStore:
     def connect(self, *, account_id: str, policy_hash: str) -> sqlite3.Connection:
         if not self.path.is_file():
             raise RiskStateError("风险账本缺失，禁止自动重建")
-        connection = sqlite3.connect(f"file:{self.path.as_posix()}?mode=rw", uri=True)
+        connection = sqlite3.connect(f"file:{self.path.as_posix()}?mode=rw", uri=True,
+                                     timeout=BUSY_TIMEOUT_MS / 1000)
         try:
+            connection.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
             check = connection.execute("PRAGMA quick_check").fetchone()
             if check is None or check[0] != "ok":
                 raise RiskStateError("风险账本完整性检查失败")
@@ -109,6 +115,13 @@ class StateStore:
         except Exception:
             connection.close()
             raise
+
+    @staticmethod
+    def begin_write(connection: sqlite3.Connection) -> None:
+        """Acquire the single SQLite writer slot before reading risk state."""
+        if connection.in_transaction:
+            raise RiskStateError("风险写入事务不得嵌套")
+        connection.execute("BEGIN IMMEDIATE")
 
     @staticmethod
     def get_meta(connection: sqlite3.Connection, key: str):

@@ -115,19 +115,37 @@ class SafeLauncherTests(unittest.TestCase):
         compose = yaml.safe_load(source)
         for port in (8081, 8082, 8083):
             self.assertIn(f"127.0.0.1:{port}:8080", source)
-        self.assertEqual(source.count('restart: "no"'), 2)
+        self.assertEqual(source.count('restart: "no"'), 3)
         self.assertIn('FREQTRADE__DRY_RUN: "true"', source)
         self.assertNotIn("FREQTRADE__EXCHANGE__KEY", source)
         self.assertIn("hoshi-paper-only:\n    internal: true", source)
         self.assertEqual(source.count('profiles: ["future-live"]'), 2)
-        self.assertEqual(source.count('./user_data/v11_market:/freqtrade/user_data/v11_market:ro'), 3)
+        self.assertEqual(source.count('hoshi-v11-market-events:/freqtrade/user_data/v11_market:ro'), 3)
         self.assertTrue(compose["networks"]["hoshi-paper-only"]["internal"])
+        self.assertEqual(set(compose["volumes"]), {
+            "hoshi-v11-a-account", "hoshi-v11-b-account", "hoshi-v11-c-account",
+            "hoshi-v11-market-events",
+        })
         for account in "abc":
             service = compose["services"][f"hoshi-{account}"]
             self.assertEqual(service["networks"], ["hoshi-paper-only"])
             self.assertEqual(service["profiles"], ["future-live"])
+            self.assertIn(f"hoshi-v11-{account}-account:/freqtrade/user_data/v11_accounts/{account.upper()}",
+                          service["volumes"])
+            self.assertNotIn(f"./user_data/v11_accounts/{account.upper()}:/freqtrade/user_data/v11_accounts/{account.upper()}",
+                             service["volumes"])
         self.assertEqual(set(compose["services"]["hoshi-market-ingest"]["networks"]),
                          {"hoshi-paper-only", "hoshi-market-egress"})
+        self.assertIn("hoshi-v11-market-events:/market",
+                      compose["services"]["hoshi-market-ingest"]["volumes"])
+        initializer = compose["services"]["hoshi-volume-init"]
+        self.assertEqual(initializer["profiles"], ["manual-setup"])
+        self.assertEqual(initializer["network_mode"], "none")
+        self.assertEqual(initializer["entrypoint"][0], "chown")
+        self.assertEqual(set(initializer["volumes"]), {
+            "hoshi-v11-a-account:/a", "hoshi-v11-b-account:/b",
+            "hoshi-v11-c-account:/c", "hoshi-v11-market-events:/market",
+        })
 
     def test_launcher_uses_guarded_entry_and_strips_unrelated_environment(self):
         with tempfile.TemporaryDirectory() as folder:

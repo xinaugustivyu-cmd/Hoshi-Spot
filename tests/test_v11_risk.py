@@ -3,6 +3,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -62,7 +63,7 @@ class RiskV11Tests(unittest.TestCase):
         self.assertEqual(paused.pause_until, MONDAY + timedelta(days=7))
         next_week = self.check(MONDAY + timedelta(days=7), cash=77.6, trades=(trade,))
         self.assertEqual(next_week.state, "ACTIVE")
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             openings = connection.execute("SELECT opening_equity FROM week_snapshots ORDER BY week_start").fetchall()
         self.assertEqual(openings, [(80.0,), (77.6,)])
 
@@ -115,7 +116,7 @@ class RiskV11Tests(unittest.TestCase):
             now=MONDAY, signal_id="signal-1", market_event_id="event-1",
             decision=decision,
         )
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             row = connection.execute(
                 "SELECT details_json FROM risk_events WHERE rule='blocked_candidate'"
             ).fetchone()
@@ -132,7 +133,7 @@ class RiskV11Tests(unittest.TestCase):
         )
         self.assertEqual(outcome.state, "HALTED_MANUAL_REVIEW")
         self.assertFalse(outcome.allow_new_entry)
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM approvals").fetchone()[0], 0)
 
     def test_drawdown_triggers_manual_stop_and_preserves_exit(self):
@@ -173,7 +174,7 @@ class RiskV11Tests(unittest.TestCase):
         )
         self.assertEqual(first.state, "DATA_PAUSE")
         self.assertEqual(second.state, "ACTIVE")
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             self.assertGreaterEqual(connection.execute(
                 "SELECT COUNT(*) FROM risk_events WHERE rule='invalid_market_data'"
             ).fetchone()[0], 1)
@@ -231,7 +232,7 @@ class RiskV11Tests(unittest.TestCase):
         self.assertEqual(after.state, "ACTIVE")
         self.assertEqual(after.details["stage_id"], "A-2")
         self.assertAlmostEqual(after.details["rolling_14d_net"], -0.2)
-        with sqlite3.connect(self.db) as connection:
+        with closing(sqlite3.connect(self.db)) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM closed_trades").fetchone()[0], 2)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM approvals").fetchone()[0], 1)
 

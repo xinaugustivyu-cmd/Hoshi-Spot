@@ -16,7 +16,21 @@ A/B/C 容器只接入 Docker `internal: true` 的 `hoshi-paper-only` 网络；�
 
 这里的证明限定于本 PR 提供的镜像、Compose 网络、只读挂载及受控入口。A/B/C 研究镜像仍包含 Freqtrade 通用代码；隔离靠入口、CCXT 边界、无密钥、内部网络和只读网关共同成立，不能描述成“研究镜像没有订单源码”。主机管理员若改写 Compose 或镜像，应重新验收。
 
-## P1：最终 A 组历史回放
+## P1：SQLite 故障修复与最终 A 组回放（2026-10-28 续验）
+
+**原始 `disk I/O error` 的单一根因未确认。** 原故障在用户关机前发生；原故障库 `quick_check=ok`，日志未指出具体失败的文件系统操作，也没有足够证据归咎于 Docker Windows bind mount、并发写入或硬件。代码审查发现旧事务在读取风控状态之后才获取写锁，默认超时 5 秒且未显式声明单写入者；测试中的若干 SQLite 连接在 Windows 上没有关闭。修复使每次风险写入先 `BEGIN IMMEDIATE`，设置明确的 5 秒 `busy_timeout`，异常时回滚并关闭旧连接后再尝试持久化人工紧急停机；任何持久化失败仍由独立 `.emergency.json` 拒绝新开仓。没有降低风控、权益采样频率或吞掉数据库错误。
+
+运行部署将 A/B/C 风险库及共享市场库置于四个独立的 Docker named volume；一次无网络、无交易的初始化服务授予容器用户写权限。此前原故障的 Windows bind mount 文件、日志和 `.emergency.json` 原样保留。Docker 文档建议数据库使用 named volume，且 Windows 主机文件系统挂载有性能差异；此处属于经过重启持久化探针验证的**缓解措施**，并非原故障因果证明。容器短时探针首进程写入、退出后第二进程读回 ACTIVE 和两条权益采样；日志 `user_data/logs/v11_named_volume_probe_first.txt`、`v11_named_volume_probe_restart.txt`。
+
+新 Run ID `A-sqlite-20261028-01` 使用 Freqtrade 2026.9、`HoshiSpotV11A`、80 USDT、BTC/ETH、2024-01-01 至 2026-10-01、每边 0.10%、保护机制及 `--cache none`，完整运行退出码 0。交易 **47 笔**，净收益 **−0.95983513 USDT（−1.20%）**，胜率 23.4%，Profit Factor 0.86，Freqtrade 已平仓最大回撤 **4.7839%**；风险账本逐小时权益估值的阶段最大回撤 **5.2325%**，两者口径不同。首次人工长期停机 **2024-07-23 14:00 UTC / max_drawdown**，此后没有新交易。新库 `quick_check=ok`、47 笔平仓净额与 ZIP 相等、24,430 条权益采样（至 2026-10-01 00:00 UTC）、144 周快照、434 风险事件、无紧急标记。完整输出 `user_data/logs/v11_A_sqlite_20261028_01.txt`，只读对账 `user_data/logs/v11_A_sqlite_audit_20261028.json`；新产物见 `artifacts/v11_offline/A-sqlite-20261028-01-*`。
+
+与旧 `A-oos-001` 比较：47 笔逐笔路径、净额、回测最大回撤、首次停机、最高风险权益回撤完全相同。新账本多 **287** 条权益采样，其中 **47** 条与 47 个入场时刻一一对应，**240** 条与锁定后的候选入场评估一一对应；新增 **240** 条 `blocked_candidate` 审计事件。当前策略在入场确认和锁定候选时额外调用风控采样，旧回放账本没有记录这些调用；它们未改变交易路径、参数或停机时间。旧风险事件 194，新风险事件 434。该完整回放证明修复后的代码在此历史数据和存储布局上完成全区间，但不能单独证明连续实时运行稳定。
+
+本轮新增 **6** 项 SQLite 注入测试，覆盖连接中断、写锁竞争、事务失败、进程在提交前异常退出及重启、损坏/账本不一致、嵌套事务；完整 V1.1 套件 **73/73 通过**、0 失败。第一次运行仅因测试容器漏挂 Compose 文件而报 FileNotFound，补齐只读挂载后同一套件全部通过，见 `user_data/logs/v11_full_tests_20261028.txt`。Compose 配置以仅供离线校验的临时 UI 占位值解析成功；基线 **23/23 SHA-256 一致**。未启动任何 A/B/C 实时模拟或真实交易容器。
+
+新回放可复现的主要参数与上文相同；风险库必须使用新 Run ID 和新 named volume，先由无网络初始化容器授予 UID 1000 写权限，再挂载到 `/freqtrade/user_data/experiments/risk_state`。回测受控入口为 `python -m hoshi_v11.guarded_freqtrade backtesting --config /freqtrade/user_data/v11_configs/A.json --config /freqtrade/user_data/v11_configs/backtest_public_only.json --strategy HoshiSpotV11A --strategy-path /freqtrade/user_data/strategies --timeframe 1h --timerange 20240101-20261001 --fee 0.001 --dry-run-wallet 80 --enable-protections --cache none --export trades`；使用 `HOSHI_V11_RUN_ID` 指向全新 ID。为读取公开 Binance 现货元数据，回测容器单独接入公开网络；受控入口仍拦截私有订单路径。完整输出保存在上述日志；不得复用旧故障 Run ID。
+
+### 先前失败记录（保留）
 
 **BLOCKED，不能提供最终全区间指标。**回放命令使用固定 A 策略、80 USDT、BTC/ETH、2024-01-01 至 2026-10-01、每侧 0.1% 手续费、`--enable-protections --cache none`。仅回测时叠加市场数据专用域名，以加载现货 `exchangeInfo`；部署配置未改。回测入口仍安装订单拦截。先前 `01` 因离线网关不可用、`02` 因 CCXT 默认触及合约元数据被拦截，均未生成结果；`03` 在代码冻结前主动中止，其部分账本和日志留在忽略目录，**不得视为完整回放**。
 
@@ -34,7 +48,7 @@ A/B/C 容器只接入 Docker `internal: true` 的 `hoshi-paper-only` 网络；�
 |---|---|---|
 | 共享公开行情 | PASS（离线和短时只读） | 同一事件 ID、UTC、实际接收时刻、异常暂停、顺序回放；尚未做连续实时采样 |
 | 执行层隔离 | PASS（指定镜像/Compose） | 同步/异步订单路径拦截、无密钥、内部网络、网关只读；不覆盖主机管理员改写部署 |
-| 最终 A 回放与短时验收 | **BLOCKED** | 短时安全项通过；完整 A 回放因 SQLite I/O 故障中止，无全区间 ZIP |
+| 最终 A 回放与短时验收 | **PASS（离线）** | 新 Run ID 完成全区间；原 SQLite 单一根因未确认，连续实时稳定性仍待人工批准后的短时验收 |
 
 ## 本轮运行命令与日志
 

@@ -32,8 +32,8 @@ services:
       - ./user_data/hoshi_v11:/freqtrade/user_data/hoshi_v11:ro
       - ./user_data/v11_configs/A.json:/freqtrade/user_data/v11_configs/A.json:ro
       - ./user_data/data/binance:/freqtrade/user_data/data/binance:ro
-      - ./user_data/v11_market:/freqtrade/user_data/v11_market:ro
-      - ./user_data/v11_accounts/A:/freqtrade/user_data/v11_accounts/A
+      - hoshi-v11-market-events:/freqtrade/user_data/v11_market:ro
+      - hoshi-v11-a-account:/freqtrade/user_data/v11_accounts/A
     ports:
       - "127.0.0.1:8081:8080"
 
@@ -52,8 +52,8 @@ services:
       - ./user_data/hoshi_v11:/freqtrade/user_data/hoshi_v11:ro
       - ./user_data/v11_configs/B.json:/freqtrade/user_data/v11_configs/B.json:ro
       - ./user_data/data/binance:/freqtrade/user_data/data/binance:ro
-      - ./user_data/v11_market:/freqtrade/user_data/v11_market:ro
-      - ./user_data/v11_accounts/B:/freqtrade/user_data/v11_accounts/B
+      - hoshi-v11-market-events:/freqtrade/user_data/v11_market:ro
+      - hoshi-v11-b-account:/freqtrade/user_data/v11_accounts/B
     ports:
       - "127.0.0.1:8082:8080"
 
@@ -72,8 +72,8 @@ services:
       - ./user_data/hoshi_v11:/freqtrade/user_data/hoshi_v11:ro
       - ./user_data/v11_configs/C.json:/freqtrade/user_data/v11_configs/C.json:ro
       - ./user_data/data/binance:/freqtrade/user_data/data/binance:ro
-      - ./user_data/v11_market:/freqtrade/user_data/v11_market:ro
-      - ./user_data/v11_accounts/C:/freqtrade/user_data/v11_accounts/C
+      - hoshi-v11-market-events:/freqtrade/user_data/v11_market:ro
+      - hoshi-v11-c-account:/freqtrade/user_data/v11_accounts/C
     ports:
       - "127.0.0.1:8083:8080"
 
@@ -91,12 +91,33 @@ services:
     environment:
       HOSHI_V11_MARKET_DB: /market/shared.sqlite
     volumes:
-      - ./user_data/v11_market:/market
+      - hoshi-v11-market-events:/market
     networks:
       - hoshi-paper-only
       - hoshi-market-egress
+
+  # One-shot storage ownership only. Must be invoked manually after review;
+  # it has no network and never starts the trading or market processes.
+  hoshi-volume-init:
+    image: freqtradeorg/freqtrade:2026.9@sha256:989aff5636d8f0213ed44fe334c3314a194a51c0c755d16866960247aafd2eae
+    profiles: ["manual-setup"]
+    restart: "no"
+    network_mode: "none"
+    user: root
+    entrypoint: ["chown", "1000:1000", "/a", "/b", "/c", "/market"]
+    volumes:
+      - hoshi-v11-a-account:/a
+      - hoshi-v11-b-account:/b
+      - hoshi-v11-c-account:/c
+      - hoshi-v11-market-events:/market
 
 networks:
   hoshi-paper-only:
     internal: true
   hoshi-market-egress: {}
+
+volumes:
+  hoshi-v11-a-account: {}
+  hoshi-v11-b-account: {}
+  hoshi-v11-c-account: {}
+  hoshi-v11-market-events: {}

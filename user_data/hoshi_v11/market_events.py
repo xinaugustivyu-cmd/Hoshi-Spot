@@ -2,27 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from bisect import bisect_right
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 
-
-@dataclass(frozen=True)
-class MarketEvent:
-    event_id: str
-    decision_time_utc: datetime
-    one_hour_close_utc: datetime
-    candles: dict[str, dict[str, dict]]
-    received_at_utc: datetime | None  # 历史数据无真实接收时刻
-
-    def price(self, pair: str) -> float:
-        return float(self.candles[pair]["1h"]["close"])
-
+from .event_model import MarketEvent, event_digest
 
 class HistoricalEventFeed:
     def __init__(self, data_dir: str | Path, pairs: tuple[str, ...] = ("BTC/USDT", "ETH/USDT")):
@@ -61,7 +47,5 @@ class HistoricalEventFeed:
                     "close_time_utc": closes[index].isoformat(),
                     **{name: float(row[name]) for name in ("open", "high", "low", "close", "volume")},
                 }
-        raw = json.dumps({"time": now.isoformat(), "candles": data},
-                         sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        event_id = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        event_id = event_digest(now, data)
         return MarketEvent(event_id, now, now, data, None)

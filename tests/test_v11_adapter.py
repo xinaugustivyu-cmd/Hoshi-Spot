@@ -1,4 +1,5 @@
 import sys
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,6 +14,8 @@ sys.path.insert(0, str(ROOT / "user_data/strategies"))
 
 from HoshiSpotV11A import HoshiSpotV11A
 from hoshi_v11.freqtrade_strategy import MarketDataFault
+from hoshi_v11.event_model import MarketEvent
+from hoshi_v11.live_events import MarketEventError
 from hoshi_v11.risk import RiskPolicy
 from hoshi_v11.risk.models import RiskDecision
 
@@ -89,6 +92,20 @@ class CandidateAdapterSafetyTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             strategy.bot_start()
 
+    def test_dry_run_start_requires_order_guard_and_fresh_shared_feed(self):
+        strategy = HoshiSpotV11A.__new__(HoshiSpotV11A)
+        strategy.config = json.loads((ROOT / "user_data/v11_configs/A.json").read_text(encoding="utf-8"))
+        strategy.config["runmode"] = "dry_run"
+        with patch("hoshi_v11.freqtrade_strategy.is_installed", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "订单隔离未安装"):
+                strategy.bot_start()
+        with (patch("hoshi_v11.freqtrade_strategy.is_installed", return_value=True),
+              patch("hoshi_v11.freqtrade_strategy.Path.is_file", return_value=True),
+              patch("hoshi_v11.freqtrade_strategy.LiveMarketJournal.at",
+                    side_effect=MarketEventError("共享行情缺失"))):
+            with self.assertRaisesRegex(MarketEventError, "共享行情缺失"):
+                strategy.bot_start()
+
     def test_missing_candle_routes_to_persistent_data_pause(self):
         strategy = self.make_strategy()
         strategy.risk_engine = Mock()
@@ -111,6 +128,35 @@ class CandidateAdapterSafetyTests(unittest.TestCase):
         strategy.risk_engine.record_emergency.assert_called_once()
         self.assertIn("wallet mismatch",
                       strategy.risk_engine.record_emergency.call_args.kwargs["reason"])
+
+    def test_live_freqtrade_frames_must_match_shared_snapshot_for_both_pairs(self):
+        strategy = self.make_strategy()
+        four_start = datetime(2025, 12, 31, 20, tzinfo=UTC)
+        frames = {}
+        candles = {}
+        for pair, price in (("BTC/USDT", 100.0), ("ETH/USDT", 200.0)):
+            frames[pair] = pd.DataFrame([{
+                "date": pd.Timestamp(NOW - timedelta(hours=1)),
+                "date_4h": pd.Timestamp(four_start),
+                "open": price, "high": price + 2, "low": price - 1,
+                "close": price + 1, "volume": 12.0,
+                "open_4h": price, "high_4h": price + 2, "low_4h": price - 1,
+                "close_4h": price + 1, "volume_4h": 12.0,
+            }])
+            candles[pair] = {
+                "1h": {"close_time_utc": NOW.isoformat(), "open": price,
+                       "high": price + 2, "low": price - 1, "close": price + 1,
+                       "volume": 12.0},
+                "4h": {"close_time_utc": (four_start + timedelta(hours=4)).isoformat(),
+                       "open": price, "high": price + 2, "low": price - 1,
+                       "close": price + 1, "volume": 12.0},
+            }
+        strategy.dp = SimpleNamespace(get_analyzed_dataframe=lambda pair, timeframe: (frames[pair], NOW))
+        event = MarketEvent("shared-id", NOW, NOW, candles, NOW + timedelta(minutes=1))
+        strategy._verify_shared_snapshot(event)
+        frames["ETH/USDT"].loc[0, "close_4h"] = 999.0
+        with self.assertRaises(MarketDataFault):
+            strategy._verify_shared_snapshot(event)
 
 
 if __name__ == "__main__":

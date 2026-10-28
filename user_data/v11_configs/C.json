@@ -41,8 +41,8 @@
     "enable_ws": false,
     "key": "",
     "secret": "",
-    "ccxt_config": {},
-    "ccxt_async_config": {},
+    "ccxt_config": {"urls": {"api": {"public": "http://hoshi-market-ingest:8088/api/v3"}}, "options": {"defaultType": "spot", "fetchMarkets": {"types": ["spot"], "loadAllOptions": false}}},
+    "ccxt_async_config": {"urls": {"api": {"public": "http://hoshi-market-ingest:8088/api/v3"}}, "options": {"defaultType": "spot", "fetchMarkets": {"types": ["spot"], "loadAllOptions": false}}},
     "pair_whitelist": [
       "BTC/USDT",
       "ETH/USDT"

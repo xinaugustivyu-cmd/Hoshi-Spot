@@ -1,0 +1,10 @@
+{
+  "exchange": {
+    "ccxt_config": {
+      "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}}
+    },
+    "ccxt_async_config": {
+      "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}}
+    }
+  }
+}

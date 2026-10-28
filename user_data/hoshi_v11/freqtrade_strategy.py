@@ -21,6 +21,8 @@ from hoshi.risk import minimum_order_reason, validate_market, within_open_trade_
 from hoshi_v11.risk import ClosedTrade, EquityInput, PositionMark, RiskEngine, RiskPolicy
 from hoshi_v11.risk.equity import planned_stake
 from hoshi_v11.market_events import HistoricalEventFeed
+from hoshi_v11.live_events import LiveMarketJournal
+from hoshi_v11.order_guard import is_installed
 
 
 log = logging.getLogger(__name__)
@@ -58,7 +60,8 @@ class HoshiV11Base(HoshiSpotV1):
         exchange = self.config.get("exchange", {})
         if (runmode not in {"backtest", "dry_run"} or self.config.get("dry_run") is not True
                 or self.config.get("trading_mode") != "spot" or exchange.get("name") != "binance"
-                or exchange.get("key") or exchange.get("secret")
+                or any(exchange.get(field) for field in
+                       ("key", "secret", "password", "uid", "privateKey", "walletAddress"))
                 or int(self.config.get("max_open_trades", -1)) != 1
                 or self.config.get("stake_currency") != "USDT"
                 or float(self.config.get("dry_run_wallet", 0)) != 80.0
@@ -75,22 +78,54 @@ class HoshiV11Base(HoshiSpotV1):
             self.historical_feed = HistoricalEventFeed(
                 Path(__file__).resolve().parents[1] / "data" / "binance"
             )
+            self.market_feed = self.historical_feed
         else:
+            if not is_installed():
+                raise RuntimeError("V1.1 纸上执行订单隔离未安装，拒绝 Dry Run")
             db = Path(__file__).resolve().parents[1] / "v11_accounts" / self.account_id / "risk.sqlite"
             if not db.is_file():
                 raise RuntimeError("Dry Run 风控账本缺失；拒绝自动重建")
             self._risk_bootstrap_pending = False
-            # A live shared public-event receiver is not yet implemented.
-            # Keep the candidate Dry Run entry path fail-closed until it is.
-            raise RuntimeError("V1.1 共享实时行情事件源尚未验收，禁止启动 Dry Run")
+            self.market_feed = LiveMarketJournal(
+                Path(__file__).resolve().parents[1] / "v11_market" / "shared.sqlite"
+            )
+            self.market_feed.at(datetime.now(timezone.utc))  # missing/stale feed rejects startup
         self.risk_engine = RiskEngine(account_id=self.account_id, db_path=db,
                                       policy=self.risk_policy)
 
+    def _verify_shared_snapshot(self, event) -> None:
+        """Dry Run 的 Freqtrade 指标输入必须与共享快照逐币逐周期一致。"""
+        for pair in ("BTC/USDT", "ETH/USDT"):
+            frame, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+            if frame is None or frame.empty:
+                raise MarketDataFault(f"{pair} 缺少已分析行情")
+            row = frame.iloc[-1]
+            for timeframe, suffix, hours in (("1h", "", 1), ("4h", "_4h", 4)):
+                date_key = "date" + suffix
+                if date_key not in row:
+                    raise MarketDataFault(f"{pair} 缺少共享快照时间列 {date_key}")
+                candle_start = row[date_key].to_pydatetime()
+                if candle_start.tzinfo is None:
+                    candle_start = candle_start.replace(tzinfo=timezone.utc)
+                actual_close = candle_start.astimezone(timezone.utc) + timedelta(hours=hours)
+                expected = event.candles[pair][timeframe]
+                if actual_close.isoformat() != expected["close_time_utc"]:
+                    raise MarketDataFault(f"{pair} {timeframe} Freqtrade 与共享事件时间不一致")
+                for field in ("open", "high", "low", "close", "volume"):
+                    column = field + suffix
+                    if column not in row or not math.isclose(
+                        float(row[column]), float(expected[field]), rel_tol=1e-9, abs_tol=1e-8
+                    ):
+                        raise MarketDataFault(f"{pair} {timeframe} Freqtrade 与共享事件价格不一致")
+
     def _risk_inputs(self, current_time: datetime):
         try:
-            event = self.historical_feed.at(current_time)
+            event = self.market_feed.at(current_time)
         except ValueError as exc:
             raise MarketDataFault(str(exc)) from exc
+        runmode = getattr(self.config.get("runmode"), "value", self.config.get("runmode"))
+        if runmode == "dry_run":
+            self._verify_shared_snapshot(event)
         closed = []
         for trade in Trade.get_trades_proxy(is_open=False):
             if trade.close_date_utc is None:

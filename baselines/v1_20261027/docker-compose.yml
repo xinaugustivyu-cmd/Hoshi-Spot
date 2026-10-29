@@ -1,0 +1,27 @@
+services:
+  hoshi-dry-run:
+    image: freqtradeorg/freqtrade:2026.9
+    container_name: hoshi-trade-dry-run
+    restart: unless-stopped
+    working_dir: /freqtrade
+    command: >-
+      trade
+      --config /freqtrade/user_data/config.json
+      --strategy HoshiSpotV1
+      --strategy-path /freqtrade/user_data/strategies
+      --dry-run
+    environment:
+      FREQTRADE__DRY_RUN: "true"
+      FREQTRADE__DRY_RUN_WALLET: ${HOSHI_DRY_RUN_WALLET:-80}
+      FREQTRADE__STAKE_AMOUNT: ${HOSHI_STAKE_AMOUNT:-unlimited}
+      FREQTRADE__API_SERVER__USERNAME: ${HOSHI_UI_USERNAME:-hoshi}
+      FREQTRADE__API_SERVER__PASSWORD: ${HOSHI_UI_PASSWORD:-replace-with-a-unique-local-password}
+      FREQTRADE__API_SERVER__JWT_SECRET_KEY: ${HOSHI_JWT_SECRET:-replace-with-at-least-32-random-characters}
+    volumes:
+      - ./user_data:/freqtrade/user_data
+    ports:
+      - "127.0.0.1:8080:8080"
+    init: true
+    security_opt:
+      - no-new-privileges:true
+

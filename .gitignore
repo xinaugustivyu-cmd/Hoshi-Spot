@@ -1,4 +1,5 @@
 .env
+.env.v11
 user_data/*.sqlite
 user_data/*.sqlite-shm
 user_data/*.sqlite-wal
@@ -11,6 +12,12 @@ user_data/hyperopt_results/**
 user_data/notebooks/**
 user_data/plot/**
 user_data/risk_state.json
+user_data/experiments/**
+user_data/v11_accounts/**
+user_data/v11_market/**
+!user_data/v11_market/.gitkeep
+user_data/v11_approvals/**
+user_data/v11_reports/**
 __pycache__/
 *.py[cod]
 .pytest_cache/

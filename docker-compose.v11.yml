@@ -1,0 +1,123 @@
+name: hoshi-v11
+
+# Prepared for later manual review. The strategy currently rejects Dry Run
+# startup until a shared public real-time event feed passes its safety gate.
+x-research: &research
+  image: freqtradeorg/freqtrade:2026.9@sha256:989aff5636d8f0213ed44fe334c3314a194a51c0c755d16866960247aafd2eae
+  restart: "no"
+  working_dir: /freqtrade
+  entrypoint: ["python", "-m", "hoshi_v11.safe_launcher"]
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  profiles: ["future-live"]
+  networks:
+    - hoshi-paper-only
+
+services:
+  hoshi-a:
+    <<: *research
+    command: ["A", "/freqtrade/user_data/v11_configs/A.json"]
+    environment:
+      PYTHONPATH: /freqtrade/user_data
+      FREQTRADE__DRY_RUN: "true"
+      FREQTRADE__API_SERVER__USERNAME: ${HOSHI_V11_A_UI_USER:?Set a local UI username}
+      FREQTRADE__API_SERVER__PASSWORD: ${HOSHI_V11_A_UI_PASSWORD:?Set a unique local UI password}
+      FREQTRADE__API_SERVER__JWT_SECRET_KEY: ${HOSHI_V11_A_JWT_SECRET:?Set a unique JWT secret}
+    volumes:
+      - ./user_data/strategies:/freqtrade/user_data/strategies:ro
+      - ./user_data/hoshi:/freqtrade/user_data/hoshi:ro
+      - ./user_data/hoshi_v11:/freqtrade/user_data/hoshi_v11:ro
+      - ./user_data/v11_configs/A.json:/freqtrade/user_data/v11_configs/A.json:ro
+      - ./user_data/data/binance:/freqtrade/user_data/data/binance:ro
+      - hoshi-v11-market-events:/freqtrade/user_data/v11_market:ro
+      - hoshi-v11-a-account:/freqtrade/user_data/v11_accounts/A
+    ports:
+      - "127.0.0.1:8081:8080"
+
+  hoshi-b:
+    <<: *research
+    command: ["B", "/freqtrade/user_data/v11_configs/B.json"]
+    environment:
+      PYTHONPATH: /freqtrade/user_data
+      FREQTRADE__DRY_RUN: "true"
+      FREQTRADE__API_SERVER__USERNAME: ${HOSHI_V11_B_UI_USER:?Set a local UI username}
+      FREQTRADE__API_SERVER__PASSWORD: ${HOSHI_V11_B_UI_PASSWORD:?Set a unique local UI password}
+      FREQTRADE__API_SERVER__JWT_SECRET_KEY: ${HOSHI_V11_B_JWT_SECRET:?Set a unique JWT secret}
+    volumes:
+      - ./user_data/strategies:/freqtrade/user_data/strategies:ro
+      - ./user_data/hoshi:/freqtrade/user_data/hoshi:ro
+      - ./user_data/hoshi_v11:/freqtrade/user_data/hoshi_v11:ro
+      - ./user_data/v11_configs/B.json:/freqtrade/user_data/v11_configs/B.json:ro
+      - ./user_data/data/binance:/freqtrade/user_data/data/binance:ro
+      - hoshi-v11-market-events:/freqtrade/user_data/v11_market:ro
+      - hoshi-v11-b-account:/freqtrade/user_data/v11_accounts/B
+    ports:
+      - "127.0.0.1:8082:8080"
+
+  hoshi-c:
+    <<: *research
+    command: ["C", "/freqtrade/user_data/v11_configs/C.json"]
+    environment:
+      PYTHONPATH: /freqtrade/user_data
+      FREQTRADE__DRY_RUN: "true"
+      FREQTRADE__API_SERVER__USERNAME: ${HOSHI_V11_C_UI_USER:?Set a local UI username}
+      FREQTRADE__API_SERVER__PASSWORD: ${HOSHI_V11_C_UI_PASSWORD:?Set a unique local UI password}
+      FREQTRADE__API_SERVER__JWT_SECRET_KEY: ${HOSHI_V11_C_JWT_SECRET:?Set a unique JWT secret}
+    volumes:
+      - ./user_data/strategies:/freqtrade/user_data/strategies:ro
+      - ./user_data/hoshi:/freqtrade/user_data/hoshi:ro
+      - ./user_data/hoshi_v11:/freqtrade/user_data/hoshi_v11:ro
+      - ./user_data/v11_configs/C.json:/freqtrade/user_data/v11_configs/C.json:ro
+      - ./user_data/data/binance:/freqtrade/user_data/data/binance:ro
+      - hoshi-v11-market-events:/freqtrade/user_data/v11_market:ro
+      - hoshi-v11-c-account:/freqtrade/user_data/v11_accounts/C
+    ports:
+      - "127.0.0.1:8083:8080"
+
+  hoshi-market-ingest:
+    profiles: ["future-live"]
+    build:
+      context: .
+      dockerfile: Dockerfile.v11-market
+    restart: "no"
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOSHI_V11_MARKET_DB: /market/shared.sqlite
+    volumes:
+      - hoshi-v11-market-events:/market
+    networks:
+      - hoshi-paper-only
+      - hoshi-market-egress
+
+  # One-shot storage ownership only. Must be invoked manually after review;
+  # it has no network and never starts the trading or market processes.
+  hoshi-volume-init:
+    image: freqtradeorg/freqtrade:2026.9@sha256:989aff5636d8f0213ed44fe334c3314a194a51c0c755d16866960247aafd2eae
+    profiles: ["manual-setup"]
+    restart: "no"
+    network_mode: "none"
+    user: root
+    entrypoint: ["chown", "1000:1000", "/a", "/b", "/c", "/market"]
+    volumes:
+      - hoshi-v11-a-account:/a
+      - hoshi-v11-b-account:/b
+      - hoshi-v11-c-account:/c
+      - hoshi-v11-market-events:/market
+
+networks:
+  hoshi-paper-only:
+    internal: true
+  hoshi-market-egress: {}
+
+volumes:
+  hoshi-v11-a-account: {}
+  hoshi-v11-b-account: {}
+  hoshi-v11-c-account: {}
+  hoshi-v11-market-events: {}

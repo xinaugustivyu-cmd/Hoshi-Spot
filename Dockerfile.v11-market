@@ -1,0 +1,23 @@
+FROM freqtradeorg/freqtrade:2026.9@sha256:989aff5636d8f0213ed44fe334c3314a194a51c0c755d16866960247aafd2eae
+
+# Reuse already verified local layers, then remove every trading/CCXT entry
+# from the producer's runtime filesystem. Only the stdlib market package below
+# is copied into this separate image.
+USER root
+RUN rm -rf /freqtrade/freqtrade \
+    /home/ftuser/.local/lib/python3.14/site-packages/ccxt \
+    /home/ftuser/.local/lib/python3.14/site-packages/ccxt-*.dist-info \
+    /home/ftuser/.local/bin/freqtrade
+
+WORKDIR /app
+COPY user_data/hoshi_v11/__init__.py /app/hoshi_v11/__init__.py
+COPY user_data/hoshi_v11/event_model.py /app/hoshi_v11/event_model.py
+COPY user_data/hoshi_v11/public_paths.py /app/hoshi_v11/public_paths.py
+COPY user_data/hoshi_v11/live_events.py /app/hoshi_v11/live_events.py
+COPY user_data/hoshi_v11/public_klines.py /app/hoshi_v11/public_klines.py
+COPY user_data/hoshi_v11/public_gateway.py /app/hoshi_v11/public_gateway.py
+COPY user_data/hoshi_v11/market_daemon.py /app/hoshi_v11/market_daemon.py
+ENV PYTHONPATH=/app
+USER ftuser
+ENTRYPOINT ["python", "-m", "hoshi_v11.market_daemon"]
+CMD []

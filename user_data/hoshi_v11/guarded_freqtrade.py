@@ -30,6 +30,11 @@ def main() -> None:
     install()
     if not is_installed():
         raise RuntimeError("订单边界防护未安装")
+    if args[0] == "trade":
+        from .no_trade_guard import install as install_no_trade, is_installed as no_trade_installed
+        install_no_trade()
+        if not no_trade_installed():
+            raise RuntimeError("无交易验收保护未安装，拒绝启动")
     from freqtrade.main import main as freqtrade_main
 
     freqtrade_main(args)
